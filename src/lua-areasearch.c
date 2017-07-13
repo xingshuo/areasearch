@@ -300,8 +300,13 @@ area_search_rect_range_objs(lua_State* L) {
     map* m = check_area(L, 1);
     float x = luaL_checknumber(L, 2);
     float z = luaL_checknumber(L, 3);
-    float dir_x = luaL_checknumber(L, 4); //unit vector dx
-    float dir_z = luaL_checknumber(L, 5); //unit vector dz
+    float dir_x = luaL_checknumber(L, 4);
+    float dir_z = luaL_checknumber(L, 5);
+    float dir_len = sqrt(dir_x*dir_x + dir_z*dir_z);
+    if (dir_len > 0 && dir_len != 1) { //convert to unit dir
+        dir_x = dir_x/dir_len;
+        dir_z = dir_z/dir_len;
+    }
     float half_width = luaL_checknumber(L, 6);
     float half_height = luaL_checknumber(L, 7);
 
