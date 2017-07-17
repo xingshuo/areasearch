@@ -46,29 +46,73 @@ is_circle_rect_cross(float rect_cx, float rect_cz, float rect_dir_x, float rect_
     }
 }
 
-static inline void
-get_min_and_max(float a, float b, float c, float d, float* min, float* max) {
-    *min = a;
-    *max = a;
-    if (b < *min) {
-        *min = b;
+static inline bool
+is_circle_sector_cross(float sector_cx, float sector_cz, float sector_dir_x, float sector_dir_z, float half_angle_rad, float sector_radius, float circle_cx, float circle_cz, float circle_radius) {
+    if (!is_two_circle_cross(sector_cx,sector_cz,sector_radius, circle_cx,circle_cz,circle_radius)) {
+        return false;
     }
-    if (b > *max) {
-        *max = b;
-    }
-    if (c < *min) {
-        *min = c;
-    }
-    if (c > *max) {
-        *max = c;
-    }
-    if (d < *min) {
-        *min = d;
-    }
-    if (d > *max) {
-        *max = d;
+    //approximate calculation
+    double cx = sector_cx - circle_radius*sector_dir_x;
+    double cz = sector_cz - circle_radius*sector_dir_z;
+    double dx = circle_cx - cx;
+    double dz = circle_cz - cz;
+    double len2 = dx*dx + dz*dz;
+    double dot_value = sector_dir_x*dx + sector_dir_z*dz;
+    double cos_value = cos(half_angle_rad);
+    if (cos_value >= 0){
+        if (dot_value >= 0){
+            return dot_value*dot_value > len2*cos_value*cos_value;
+        }else {
+            return false;
+        }
+    }else{
+        if (dot_value < 0){
+            return dot_value*dot_value < len2*cos_value*cos_value;
+        }else {
+            return true;
+        }
     }
 }
+
+static inline void
+vector_rotate(float dir_x, float dir_z, float rotate_rad, float* new_dir_x, float* new_dir_z) {
+    float cos_value = cos(rotate_rad);
+    float sin_value = sin(rotate_rad);
+    *new_dir_x = dir_x*cos_value - dir_z*sin_value;
+    *new_dir_z = dir_z*cos_value + dir_x*sin_value;
+}
+
+static inline void
+check_max_and_min(float* max, float* min, float value){
+    if (value > *max) {
+        *max = value;
+    }
+    if (value < *min) {
+        *min = value;
+    }
+}
+
+static inline void
+get_cover_row_and_col(map* m, float min_x, float max_x, float min_z, float max_z, int* min_col, int* max_col, int* min_row, int* max_row){
+    *min_col = floor(min_x/m->grid_size);
+    *max_col = floor(max_x/m->grid_size);
+    *min_row = floor(min_z/m->grid_size);
+    *max_row = floor(max_z/m->grid_size);
+    *min_col -= m->extra_check_grids;
+    *max_col += m->extra_check_grids;
+    *min_row -= m->extra_check_grids;
+    *max_row += m->extra_check_grids;
+}
+
+static inline bool
+get_safe_row_and_col(map* m, float min_x, float max_x, float min_z, float max_z, int* min_col, int* max_col, int* min_row, int* max_row){
+    *min_col = ceil(min_x/m->grid_size);
+    *max_col = floor(max_x/m->grid_size)-1;
+    *min_row = ceil(min_z/m->grid_size);
+    *max_row = floor(max_z/m->grid_size)-1;
+    return (min_row<=max_row && min_col<=max_col);
+}
+
 
 static int
 area_new(lua_State* L) {
@@ -209,58 +253,21 @@ area_search_circle_range_objs(lua_State* L) {
     if (!t) {
         return 1;
     }
-    float half_grid = 0.5*m->grid_size;
-    float dx = x - t->cx;
-    float dz = z - t->cz;
-    float lr = radius - (half_grid + dx); //left
-    float rr = radius - (half_grid - dx); //right
-    float tr = radius - (half_grid + dz); //top
-    float br = radius - (half_grid - dz); //bottom
-    float lr_grid = lr/m->grid_size;
-    int lr_cover_grid = ceil(lr_grid);
-    float rr_grid = rr/m->grid_size;
-    int rr_cover_grid = ceil(rr_grid);
-    if (rr_cover_grid == floor(rr_grid)) { //to cover boundary points
-        rr_cover_grid++;
-    }
-    float tr_grid = tr/m->grid_size;
-    int tr_cover_grid = ceil(tr_grid);
-    float br_grid = br/m->grid_size;
-    int br_cover_grid = ceil(br_grid);
-    if (br_cover_grid == floor(br_grid)) { //to cover boundary points
-        br_cover_grid++;
-    }
-
-    lr_cover_grid = lr_cover_grid + m->extra_check_grids;
-    rr_cover_grid = rr_cover_grid + m->extra_check_grids;
-    tr_cover_grid = tr_cover_grid + m->extra_check_grids;
-    br_cover_grid = br_cover_grid + m->extra_check_grids;
+    int min_cover_col,max_cover_col,min_cover_row,max_cover_row;
+    get_cover_row_and_col(m, x-radius, x+radius, z-radius, z+radius, &min_cover_col, &max_cover_col, &min_cover_row, &max_cover_row);
 
     float safe_radius = HALF_SQRT2*radius;
-    lr = safe_radius - (half_grid + dx);
-    rr = safe_radius - (half_grid - dx);
-    tr = safe_radius - (half_grid + dz);
-    br = safe_radius - (half_grid - dz);
-    lr_grid = lr/m->grid_size;
-    int lr_safe_grid = floor(lr_grid);
-    rr_grid = rr/m->grid_size;
-    int rr_safe_grid = floor(rr_grid);
-    tr_grid = tr/m->grid_size;
-    int tr_safe_grid = floor(tr_grid);
-    br_grid = br/m->grid_size;
-    int br_safe_grid = floor(br_grid);
-
+    int min_safe_col,max_safe_col,min_safe_row,max_safe_row;
+    bool has_safe = get_safe_row_and_col(m, x-safe_radius, x+safe_radius, z-safe_radius, z+safe_radius, &min_safe_col, &max_safe_col, &min_safe_row, &max_safe_row);
     int n = 0;
-    int i,j;
-    for (i=-lr_cover_grid; i<=rr_cover_grid; i++) {
-        for (j=-tr_cover_grid; j<=br_cover_grid; j++) {
-            int r = row + j;
-            int c = col + i;
+    int r,c;
+    for (r=min_cover_row; r<=max_cover_row; r++){
+        for (c=min_cover_col; c<=max_cover_col; c++){
             tower *t = get_tower(m, r, c);
             if (!t) {
                 continue;
             }
-            if (i>=-lr_safe_grid && i<=rr_safe_grid && j>=-tr_safe_grid && j<=br_safe_grid) { //safe area
+            if (has_safe && r>=min_safe_row && r<=max_safe_row && c>=min_safe_col && c<=max_safe_col) { //safe area
                 object* pCur = t->pHead->pNext;
                 while (pCur != t->pHead) {
                     if ((type&pCur->type) == type) {
@@ -346,61 +353,31 @@ area_search_rect_range_objs(lua_State* L) {
     float rb_pos_z = z + bottom_dz + right_dz;
 
     float min_x,max_x,min_z,max_z;
-    get_min_and_max(lt_pos_x, rt_pos_x, lb_pos_x, rb_pos_x, &min_x, &max_x);
-    get_min_and_max(lt_pos_z, rt_pos_z, lb_pos_z, rb_pos_z, &min_z, &max_z);
+    min_x = max_x = lt_pos_x;
+    min_z = max_z = lt_pos_z;
+    check_max_and_min(&max_x, &min_x, rt_pos_x);
+    check_max_and_min(&max_x, &min_x, lb_pos_x);
+    check_max_and_min(&max_x, &min_x, rb_pos_x);
 
-    float half_grid = 0.5*m->grid_size;
-    float lr = t->cx - half_grid - min_x; //left
-    float rr = max_x - (t->cx + half_grid); //right
-    float tr = t->cz - half_grid - min_z; //top
-    float br = max_z - (t->cz + half_grid); //bottom
-    float lr_grid = lr/m->grid_size;
-    int lr_cover_grid = ceil(lr_grid);
-    float rr_grid = rr/m->grid_size;
-    int rr_cover_grid = ceil(rr_grid);
-    if (rr_cover_grid == floor(rr_grid)) { //to cover boundary points
-        rr_cover_grid++;
-    }
-    float tr_grid = tr/m->grid_size;
-    int tr_cover_grid = ceil(tr_grid);
-    float br_grid = br/m->grid_size;
-    int br_cover_grid = ceil(br_grid);
-    if (br_cover_grid == floor(br_grid)) { //to cover boundary points
-        br_cover_grid++;
-    }
+    check_max_and_min(&max_z, &min_z, rt_pos_z);
+    check_max_and_min(&max_z, &min_z, lb_pos_z);
+    check_max_and_min(&max_z, &min_z, rb_pos_z);
 
-    lr_cover_grid = lr_cover_grid + m->extra_check_grids;
-    rr_cover_grid = rr_cover_grid + m->extra_check_grids;
-    tr_cover_grid = tr_cover_grid + m->extra_check_grids;
-    br_cover_grid = br_cover_grid + m->extra_check_grids;
+    int min_cover_col,max_cover_col,min_cover_row,max_cover_row;
+    get_cover_row_and_col(m, min_x, max_x, min_z, max_z, &min_cover_col, &max_cover_col, &min_cover_row, &max_cover_row);
 
     float safe_radius = HALF_SQRT2*((half_width<half_height) ? half_width : half_height);
-    float dx = x - t->cx;
-    float dz = z - t->cz;
-    lr = safe_radius - (half_grid + dx);
-    rr = safe_radius - (half_grid - dx);
-    tr = safe_radius - (half_grid + dz);
-    br = safe_radius - (half_grid - dz);
-    lr_grid = lr/m->grid_size;
-    int lr_safe_grid = floor(lr_grid);
-    rr_grid = rr/m->grid_size;
-    int rr_safe_grid = floor(rr_grid);
-    tr_grid = tr/m->grid_size;
-    int tr_safe_grid = floor(tr_grid);
-    br_grid = br/m->grid_size;
-    int br_safe_grid = floor(br_grid);
-
+    int min_safe_col,max_safe_col,min_safe_row,max_safe_row;
+    bool has_safe = get_safe_row_and_col(m, x-safe_radius, x+safe_radius, z-safe_radius, z+safe_radius, &min_safe_col, &max_safe_col, &min_safe_row, &max_safe_row);
     int n = 0;
-    int i,j;
-    for (i=-lr_cover_grid; i<=rr_cover_grid; i++) {
-        for (j=-tr_cover_grid; j<=br_cover_grid; j++) {
-            int r = row + j;
-            int c = col + i;
+    int r,c;
+    for (r=min_cover_row; r<=max_cover_row; r++){
+        for (c=min_cover_col; c<=max_cover_col; c++){
             tower *t = get_tower(m, r, c);
             if (!t) {
                 continue;
             }
-            if (i>=-lr_safe_grid && i<=rr_safe_grid && j>=-tr_safe_grid && j<=br_safe_grid) {
+            if (has_safe && r>=min_safe_row && r<=max_safe_row && c>=min_safe_col && c<=max_safe_col) {
                 object* pCur = t->pHead->pNext;
                 while (pCur != t->pHead) {
                     if ((type&pCur->type) == type) {
@@ -434,24 +411,6 @@ area_search_rect_range_objs(lua_State* L) {
         }
     }
     return 1;
-}
-
-static inline void
-vector_rotate(float dir_x, float dir_z, float rotate_rad, float* new_dir_x, float* new_dir_z) {
-    float cos_value = cos(rotate_rad);
-    float sin_value = sin(rotate_rad);
-    *new_dir_x = dir_x*cos_value - dir_z*sin_value;
-    *new_dir_z = dir_z*cos_value + dir_x*sin_value;
-}
-
-static inline void
-check_max_and_min(float* max, float* min, float value){
-    if (value > *max) {
-        *max = value;
-    }
-    if (value < *min) {
-        *min = value;
-    }
 }
 
 int
@@ -532,49 +491,77 @@ area_search_sector_range_objs(lua_State* L) {
         check_max_and_min(&max_z, &min_z, check_z);
     }
 
-    float half_grid = 0.5*m->grid_size;
-    float lr = t->cx - half_grid - min_x; //left
-    float rr = max_x - (t->cx + half_grid); //right
-    float tr = t->cz - half_grid - min_z; //top
-    float br = max_z - (t->cz + half_grid); //bottom
-    float lr_grid = lr/m->grid_size;
-    int lr_cover_grid = ceil(lr_grid);
-    float rr_grid = rr/m->grid_size;
-    int rr_cover_grid = ceil(rr_grid);
-    if (rr_cover_grid == floor(rr_grid)) { //to cover boundary points
-        rr_cover_grid++;
-    }
-    float tr_grid = tr/m->grid_size;
-    int tr_cover_grid = ceil(tr_grid);
-    float br_grid = br/m->grid_size;
-    int br_cover_grid = ceil(br_grid);
-    if (br_cover_grid == floor(br_grid)) { //to cover boundary points
-        br_cover_grid++;
-    }
+    int min_cover_col,max_cover_col,min_cover_row,max_cover_row;
+    get_cover_row_and_col(m, min_x, max_x, min_z, max_z, &min_cover_col, &max_cover_col, &min_cover_row, &max_cover_row);
 
-    lr_cover_grid = lr_cover_grid + m->extra_check_grids;
-    rr_cover_grid = rr_cover_grid + m->extra_check_grids;
-    tr_cover_grid = tr_cover_grid + m->extra_check_grids;
-    br_cover_grid = br_cover_grid + m->extra_check_grids;
-
-    //float safe_radius = HALF_SQRT2*((half_width<half_height) ? half_width : half_height);
-/*    float dx = x - t->cx;
-    float dz = z - t->cz;
-    lr = safe_radius - (half_grid + dx);
-    rr = safe_radius - (half_grid - dx);
-    tr = safe_radius - (half_grid + dz);
-    br = safe_radius - (half_grid - dz);
-    lr_grid = lr/m->grid_size;
-    int lr_safe_grid = floor(lr_grid);
-    rr_grid = rr/m->grid_size;
-    int rr_safe_grid = floor(rr_grid);
-    tr_grid = tr/m->grid_size;
-    int tr_safe_grid = floor(tr_grid);
-    br_grid = br/m->grid_size;
-    int br_safe_grid = floor(br_grid);*/
+    float min_safe_x, max_safe_x, min_safe_z, max_safe_z;
+    if (half_angle < 90) {
+        float L = radius/(1 + sin(half_angle_rad));
+        float R = L*sin(half_angle_rad)*HALF_SQRT2;
+        float cx = x + L*dir_x;
+        float cz = z + L*dir_z;
+        min_safe_x = cx - R;
+        max_safe_x = cx + R;
+        min_safe_z = cz - R;
+        max_safe_z = cz + R;
+    }else {
+        float L = radius/2;
+        float R = L*HALF_SQRT2;
+        float cx = x + L*dir_x;
+        float cz = z + L*dir_z;
+        min_safe_x = cx - R;
+        max_safe_x = cx + R;
+        min_safe_z = cz - R;
+        max_safe_z = cz + R;
+    }
+    int min_safe_col,max_safe_col,min_safe_row,max_safe_row;
+    bool has_safe = get_safe_row_and_col(m, min_safe_x, max_safe_x, min_safe_z, max_safe_z, &min_safe_col, &max_safe_col, &min_safe_row, &max_safe_row);
+    int n = 0;
+    int r,c;
+    for (r=min_cover_row; r<=max_cover_row; r++){
+        for (c=min_cover_col; c<=max_cover_col; c++){
+            tower *t = get_tower(m, r, c);
+            if (!t) {
+                continue;
+            }
+            if (has_safe && r>=min_safe_row && r<=max_safe_row && c>=min_safe_col && c<=max_safe_col){
+                object* pCur = t->pHead->pNext;
+                while (pCur != t->pHead) {
+                    if ((type&pCur->type) == type) {
+                        lua_pushinteger(L,pCur->id);
+                        lua_pushinteger(L,1);
+                        lua_rawset(L,5);
+                        n++;
+                        if (n >= limit_cnt) {
+                            return 1;
+                        }
+                    }
+                    pCur = pCur->pNext;
+                }
+            }else{
+                object* pCur = t->pHead->pNext;
+                while (pCur != t->pHead) {
+                    if ((type&pCur->type) == type) {
+                        if (is_circle_sector_cross(x,z,dir_x,dir_z,half_angle_rad,radius,pCur->x,pCur->z,pCur->radius)) {
+                            lua_pushinteger(L,pCur->id);
+                            lua_pushinteger(L,1);
+                            lua_rawset(L,5);
+                            n++;
+                            if (n >= limit_cnt) {
+                                return 1;
+                            }
+                        }
+                    }
+                    pCur = pCur->pNext;
+                }
+            }
+        }
+    }
+    return 1;
 }
 
-int luaopen_areasearch(lua_State* L) {
+int
+luaopen_areasearch(lua_State* L) {
     luaL_checkversion(L);
     luaL_Reg l1[] = {
         {"create", area_new},
@@ -587,6 +574,7 @@ int luaopen_areasearch(lua_State* L) {
         {"query", area_query},
         {"search_circle_range_objs", area_search_circle_range_objs},
         {"search_rect_range_objs", area_search_rect_range_objs},
+        {"search_sector_range_objs", area_search_sector_range_objs},
         {NULL, NULL},
     };
     luaL_newmetatable(L, "areasearch_meta");
