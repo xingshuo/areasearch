@@ -3,6 +3,7 @@
 #include "lauxlib.h"
 
 #define HALF_SQRT2 0.7071
+#define PER_ANGLE_RADIAN M_PI/180
 
 #define check_area(L, idx)\
     *(map**)luaL_checkudata(L, idx, "areasearch_meta")
@@ -433,6 +434,144 @@ area_search_rect_range_objs(lua_State* L) {
         }
     }
     return 1;
+}
+
+static inline void
+vector_rotate(float dir_x, float dir_z, float rotate_rad, float* new_dir_x, float* new_dir_z) {
+    float cos_value = cos(rotate_rad);
+    float sin_value = sin(rotate_rad);
+    *new_dir_x = dir_x*cos_value - dir_z*sin_value;
+    *new_dir_z = dir_z*cos_value + dir_x*sin_value;
+}
+
+static inline void
+check_max_and_min(float* max, float* min, float value){
+    if (value > *max) {
+        *max = value;
+    }
+    if (value < *min) {
+        *min = value;
+    }
+}
+
+int
+area_search_sector_range_objs(lua_State* L) {
+    map* m = check_area(L, 1);
+    float x = luaL_checknumber(L, 2);
+    float z = luaL_checknumber(L, 3);
+    float dir_x = luaL_checknumber(L, 4);
+    float dir_z = luaL_checknumber(L, 5);
+    float dir_len = sqrt(dir_x*dir_x + dir_z*dir_z);
+    if (dir_len > 0 && dir_len != 1) { //convert to unit dir
+        dir_x = dir_x/dir_len;
+        dir_z = dir_z/dir_len;
+    }
+    float angle = luaL_checknumber(L, 6);
+    float radius = luaL_checknumber(L, 7);
+    int type = 0;
+    if (lua_isnumber(L, 8)) {
+        type = luaL_checknumber(L, 8);
+    }
+    int limit_cnt = 0x7fff;
+    if (lua_isnumber(L, 9)) {
+        limit_cnt = luaL_checknumber(L, 9);
+    }
+    lua_settop(L, 4);
+    lua_newtable(L);
+    int row = z/m->grid_size;
+    int col = x/m->grid_size;
+    tower *t = get_tower(m, row, col);
+    if (!t) {
+        return 1;
+    }
+    float min_x,min_z,max_x,max_z;
+    min_x = max_x = x;
+    min_z = max_z = z;
+    float half_angle = angle*0.5;
+    float half_angle_rad = half_angle*PER_ANGLE_RADIAN;
+    float edge_dir_x,edge_dir_z;
+    int i;
+    for (i=0; i<2; i++) {
+        if (i==0) {
+            vector_rotate(dir_x, dir_z, half_angle_rad, &edge_dir_x, &edge_dir_z);
+        }else {
+            vector_rotate(dir_x, dir_z, -half_angle_rad, &edge_dir_x, &edge_dir_z);
+        }
+        float edge_vx = x + edge_dir_x*radius;
+        float edge_vz = z + edge_dir_z*radius;
+        check_max_and_min(&max_x, &min_x, edge_vx);
+        check_max_and_min(&max_z, &min_z, edge_vz);
+    }
+
+    float rad = atan2(dir_z, dir_x);
+    float min_pi_rad = (rad - half_angle_rad)/M_PI;
+    float max_pi_rad = (rad + half_angle_rad)/M_PI;
+    float f;
+    float check_x,check_z;
+    for (f = -2; f <= 2; f += 0.5) {
+        if (f > max_pi_rad) {
+            break;
+        }
+        if (f < min_pi_rad) {
+            continue;
+        }
+        if (f==-2 || f==0 || f==2) {
+            check_x = x + radius;
+            check_z = 0;
+        }else if (f==1 || f==-1) {
+            check_x = x - radius;
+            check_z = 0;
+        }else if (f==-1.5 || f==0.5) {
+            check_x = 0;
+            check_z = z + radius;
+        }else {
+            check_x = 0;
+            check_z = z - radius;
+        }
+        check_max_and_min(&max_x, &min_x, check_x);
+        check_max_and_min(&max_z, &min_z, check_z);
+    }
+
+    float half_grid = 0.5*m->grid_size;
+    float lr = t->cx - half_grid - min_x; //left
+    float rr = max_x - (t->cx + half_grid); //right
+    float tr = t->cz - half_grid - min_z; //top
+    float br = max_z - (t->cz + half_grid); //bottom
+    float lr_grid = lr/m->grid_size;
+    int lr_cover_grid = ceil(lr_grid);
+    float rr_grid = rr/m->grid_size;
+    int rr_cover_grid = ceil(rr_grid);
+    if (rr_cover_grid == floor(rr_grid)) { //to cover boundary points
+        rr_cover_grid++;
+    }
+    float tr_grid = tr/m->grid_size;
+    int tr_cover_grid = ceil(tr_grid);
+    float br_grid = br/m->grid_size;
+    int br_cover_grid = ceil(br_grid);
+    if (br_cover_grid == floor(br_grid)) { //to cover boundary points
+        br_cover_grid++;
+    }
+
+    lr_cover_grid = lr_cover_grid + m->extra_check_grids;
+    rr_cover_grid = rr_cover_grid + m->extra_check_grids;
+    tr_cover_grid = tr_cover_grid + m->extra_check_grids;
+    br_cover_grid = br_cover_grid + m->extra_check_grids;
+
+    //float safe_radius = HALF_SQRT2*((half_width<half_height) ? half_width : half_height);
+/*    float dx = x - t->cx;
+    float dz = z - t->cz;
+    lr = safe_radius - (half_grid + dx);
+    rr = safe_radius - (half_grid - dx);
+    tr = safe_radius - (half_grid + dz);
+    br = safe_radius - (half_grid - dz);
+    lr_grid = lr/m->grid_size;
+    int lr_safe_grid = floor(lr_grid);
+    rr_grid = rr/m->grid_size;
+    int rr_safe_grid = floor(rr_grid);
+    tr_grid = tr/m->grid_size;
+    int tr_safe_grid = floor(tr_grid);
+    br_grid = br/m->grid_size;
+    int br_safe_grid = floor(br_grid);*/
 }
 
 int luaopen_areasearch(lua_State* L) {
