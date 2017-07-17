@@ -36,6 +36,13 @@ for id in pairs(tbl) do
     print("get obj",id)
 end
 
+local cx,cz,unit_dirx,unit_dirz,radius,angle = 20,20,0,1,10,180
+local tbl = areaobj:search_sector_range_objs(cx,cz,unit_dirx,unit_dirz,angle,radius)
+print("sector get44:")
+for id in pairs(tbl) do
+    print("get obj",id)
+end
+
 areaobj = nil
 collectgarbage("collect")
 print(sfmt("test end!! %sM",collectgarbage("count")))
