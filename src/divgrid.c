@@ -1,5 +1,4 @@
 #include "divgrid.h"
-#include <assert.h>
 
 #define INVALID_ID (~0)
 #define PRE_ALLOC 2
@@ -87,28 +86,26 @@ rehash(map * m) {
     free(old_slot);
 }
 
-static tower *
-new_tower(map* m, int row, int col){
-    tower * t = malloc(sizeof(*t));
-    t->row = row;
-    t->col = col;
-    t->cx = (col+0.5)*m->grid_size;
-    t->cz = (row+0.5)*m->grid_size;
-    t->pHead = malloc(sizeof(object));
-    t->pHead->pNext = t->pHead;
-    t->pHead->pPrev = t->pHead;
-    return t;
-};
-
-tower *
-get_tower(map * m, int row, int col) {
+inline tower *
+get_tower(map * m, int row, int col, bool creat_when_null) {
     if (!(row >= 0 && row < m->max_row && col >= 0 && col < m->max_col)) {
         return NULL;
     }
     int index = row*m->max_col + col;
     assert(index < (m->max_row*m->max_col));
     if (m->tower_list[index] == NULL) {
-        m->tower_list[index] = new_tower(m, row, col);
+        if (!creat_when_null) {
+            return NULL;
+        }
+        tower * t = malloc(sizeof(*t));
+        t->row = row;
+        t->col = col;
+        t->cx = (col+0.5)*m->grid_size;
+        t->cz = (row+0.5)*m->grid_size;
+        t->pHead = malloc(sizeof(object));
+        t->pHead->pNext = t->pHead;
+        t->pHead->pPrev = t->pHead;
+        m->tower_list[index] = t;
     }
     return m->tower_list[index];
 };
@@ -173,7 +170,7 @@ map_update_object(map* m, object* obj, float x, float z){
     }
     int new_row = z/m->grid_size;
     int new_col = x/m->grid_size;
-    tower* new_t = get_tower(m, new_row, new_col);
+    tower* new_t = get_tower(m, new_row, new_col, true);
     if (!new_t) {
         return 0;
     }

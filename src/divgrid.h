@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <assert.h>
 
 typedef struct object {
     uint64_t id;
@@ -51,7 +52,7 @@ object* map_query_object(map*, uint64_t);
 object* map_init_object(map*, uint64_t);
 int map_update_object(map*, object*, float, float);
 object* map_delete_object(map *, uint64_t);
-tower* get_tower(map*, int, int);
+tower* get_tower(map*, int, int, bool);
 void insert_obj_to_tower(tower*, object*);
 void delete_obj_from_tower(tower*, object*);
 

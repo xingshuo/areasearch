@@ -113,6 +113,11 @@ get_safe_row_and_col(map* m, float min_x, float max_x, float min_z, float max_z,
     return (min_row<=max_row && min_col<=max_col);
 }
 
+static inline bool
+is_valid_pos(map* m, float x, float z){
+    return (x>=0 && x<=m->max_x) && (z>=0 && z<=m->max_z);
+}
+
 
 static int
 area_new(lua_State* L) {
@@ -146,7 +151,7 @@ area_add(lua_State* L) {
     }
     int row = z/m->grid_size;
     int col = x/m->grid_size;
-    tower *t = get_tower(m, row, col);
+    tower *t = get_tower(m, row, col, true);
     if (!t) {
         return 0;
     }
@@ -247,10 +252,7 @@ area_search_circle_range_objs(lua_State* L) {
     }
     lua_settop(L, 4);
     lua_newtable(L);
-    int row = z/m->grid_size;
-    int col = x/m->grid_size;
-    tower *t = get_tower(m, row, col);
-    if (!t) {
+    if (!is_valid_pos(m, x, z)) {
         return 1;
     }
     int min_cover_col,max_cover_col,min_cover_row,max_cover_row;
@@ -263,7 +265,7 @@ area_search_circle_range_objs(lua_State* L) {
     int r,c;
     for (r=min_cover_row; r<=max_cover_row; r++){
         for (c=min_cover_col; c<=max_cover_col; c++){
-            tower *t = get_tower(m, r, c);
+            tower *t = get_tower(m, r, c, false);
             if (!t) {
                 continue;
             }
@@ -328,10 +330,7 @@ area_search_rect_range_objs(lua_State* L) {
     }
     lua_settop(L, 4);
     lua_newtable(L);
-    int row = z/m->grid_size;
-    int col = x/m->grid_size;
-    tower *t = get_tower(m, row, col);
-    if (!t) {
+    if (!is_valid_pos(m, x, z)) {
         return 1;
     }
     float top_dx = dir_x*half_height;
@@ -373,7 +372,7 @@ area_search_rect_range_objs(lua_State* L) {
     int r,c;
     for (r=min_cover_row; r<=max_cover_row; r++){
         for (c=min_cover_col; c<=max_cover_col; c++){
-            tower *t = get_tower(m, r, c);
+            tower *t = get_tower(m, r, c, false);
             if (!t) {
                 continue;
             }
@@ -437,10 +436,7 @@ area_search_sector_range_objs(lua_State* L) {
     }
     lua_settop(L, 4);
     lua_newtable(L);
-    int row = z/m->grid_size;
-    int col = x/m->grid_size;
-    tower *t = get_tower(m, row, col);
-    if (!t) {
+    if (!is_valid_pos(m, x, z)) {
         return 1;
     }
     float min_x,min_z,max_x,max_z;
@@ -520,7 +516,7 @@ area_search_sector_range_objs(lua_State* L) {
     int r,c;
     for (r=min_cover_row; r<=max_cover_row; r++){
         for (c=min_cover_col; c<=max_cover_col; c++){
-            tower *t = get_tower(m, r, c);
+            tower *t = get_tower(m, r, c, false);
             if (!t) {
                 continue;
             }
